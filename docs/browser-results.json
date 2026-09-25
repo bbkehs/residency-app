@@ -1,0 +1,16 @@
+{
+  "checked": [
+    "Admin login and overview",
+    "Admin account creation and temporary credentials",
+    "Downloaded roster and two ordered edits survive a fully offline reload",
+    "Reconnection synchronizes both edits exactly once",
+    "Rep session proposal, cohort roster confirmation, and admin approval",
+    "Student request → professor approval → admin approval",
+    "Admin sees independent rep, professor, and leave statuses",
+    "Date-range report and CSV export",
+    "Professor/admin message thread and reply",
+    "Persian RTL at 390px without page overflow",
+    "No browser JavaScript errors"
+  ],
+  "pageErrors": []
+}

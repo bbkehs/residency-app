@@ -1,0 +1,30 @@
+{
+  "name": "residency-cohort",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "apps/api",
+    "apps/web",
+    "packages/domain"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"npm run dev -w @residency/api\" \"npm run dev -w @residency/web\"",
+    "build": "npm run build -w @residency/web",
+    "start": "npm run start -w @residency/api",
+    "setup": "npm run setup -w @residency/api",
+    "test": "node --test packages/domain/*.test.js apps/api/test/*.test.js",
+    "test:domain": "node --test packages/domain/*.test.js",
+    "demo": "npm run build && node scripts/demo.mjs",
+    "test:browser": "npm run build && node scripts/browser-check.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "mongodb-memory-server": "^10.2.1",
+    "playwright": "^1.63.0",
+    "supertest": "^7.1.4"
+  }
+}
