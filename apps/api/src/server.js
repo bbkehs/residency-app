@@ -1,9 +1,20 @@
 import mongoose from 'mongoose';
 import { createApp } from './app.js';
 import { initializeIndexes } from './models.js';
-if (!process.env.MONGODB_URI) throw new Error('Set MONGODB_URI in .env. See README.md.');
+import { validateProductionConfig } from './config.js';
+import { startPushWorker } from './push.js';
+const config = validateProductionConfig();
 await mongoose.connect(process.env.MONGODB_URI);
+const hello = await mongoose.connection.db.admin().command({ hello: 1 });
+if (!hello.setName && hello.msg !== 'isdbgrid') throw new Error('This application needs a MongoDB replica set or sharded cluster for transactions.');
 await initializeIndexes();
-const app = createApp();
-const server = app.listen(Number(process.env.PORT || 4000), '0.0.0.0', () => console.log(`Residency API listening on port ${process.env.PORT || 4000}`));
-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(async () => { await mongoose.disconnect(); process.exit(0); }));
+const app = createApp({ origin: config.origin });
+const worker = startPushWorker(config.push);
+const server = app.listen(config.port, '0.0.0.0', () => console.log(`Residency API listening on port ${config.port}; browser push ${config.push.enabled ? 'enabled' : 'disabled'}.`));
+let stopping = false;
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => {
+  if (stopping) return; stopping = true;
+  const deadline = setTimeout(() => process.exit(1), 30000); deadline.unref();
+  await Promise.all([new Promise(resolve => server.close(resolve)), worker.stop()]);
+  await mongoose.disconnect(); clearTimeout(deadline); process.exit(0);
+});

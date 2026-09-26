@@ -1,12 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 function offlineShell() {
   return { name: 'cohort-offline-shell', generateBundle(_, bundle) {
-    const assets = ['/', '/index.html', '/icon.svg', '/icon-192.png', '/icon-512.png', '/manifest.webmanifest', ...Object.keys(bundle).filter(k => /\.(js|css)$/.test(k)).map(k => '/' + k)];
-    const version = Object.keys(bundle).join('|');
+    const assets = ['/', '/index.html', '/icon.svg', '/icon-192.png', '/icon-512.png', '/manifest.webmanifest', '/push-worker.js', ...Object.keys(bundle).filter(k => /\.(js|css)$/.test(k)).map(k => '/' + k)];
+    const version = createHash('sha256').update(Object.keys(bundle).join('|')).update(readFileSync(new URL('./public/push-worker.js', import.meta.url))).digest('hex').slice(0, 16);
     this.emitFile({ type: 'asset', fileName: 'sw.js', source: `
 const CACHE = 'cohort-shell-' + ${JSON.stringify(version)};
 const ASSETS = ${JSON.stringify(assets)};
+importScripts('/push-worker.js');
 self.addEventListener('install', event => { event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS))); });
 self.addEventListener('activate', event => { event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith('cohort-shell-') && k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', event => {

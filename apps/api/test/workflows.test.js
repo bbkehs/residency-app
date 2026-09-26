@@ -22,7 +22,7 @@ async function session(extra = {}) {
 }
 const observation = (studentId, status = 'present', version = 0) => ({ studentId, status, version, recordedAt: new Date().toISOString(), operationId: randomUUID() });
 before(async () => {
-  mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 }, instanceOpts: [{ args: ['--nounixsocket'] }], binary: { version: '7.0.24' } });
+  mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 }, instanceOpts: [{ args: process.platform === 'win32' ? [] : ['--nounixsocket'] }], binary: { version: process.env.MONGOMS_VERSION || '7.0.24' } });
   await mongoose.connect(mongo.getUri()); await initializeIndexes(); app = createApp({ origin });
   [d1, d2] = await Department.create([{ code: 'PMR', name: 'PM&R' }, { code: 'NEU', name: 'Neurology' }]);
   [c1, c2, c3] = await Cohort.create([{ departmentId: d1._id, year: 1 }, { departmentId: d1._id, year: 2 }, { departmentId: d2._id, year: 1 }]);

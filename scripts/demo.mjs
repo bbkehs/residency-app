@@ -11,9 +11,15 @@ import { hashPassword } from '../apps/api/src/security.js';
 await mkdir(resolve('.runtime/tmp'), { recursive: true });
 process.env.TMPDIR = resolve('.runtime/tmp');
 process.env.NODE_ENV = 'development';
+// Isolated browser tests use synthetic subscriptions; the demo never starts a push worker.
+if (process.env.DEMO_TEST_PUSH === 'true') {
+  const { default: webpush } = await import('web-push');
+  const keys = webpush.generateVAPIDKeys();
+  Object.assign(process.env, { PUSH_ENABLED: 'true', VAPID_PUBLIC_KEY: keys.publicKey, VAPID_PRIVATE_KEY: keys.privateKey, VAPID_SUBJECT: 'mailto:demo@example.com' });
+} else process.env.PUSH_ENABLED = 'false';
 const mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 }, instanceOpts: [
   { args: process.platform === 'win32' ? [] : ['--nounixsocket'] }
-], binary: { version: '7.0.24', downloadDir: resolve('node_modules/.cache/mongodb-binaries') } });
+], binary: { version: process.env.MONGOMS_VERSION || '7.0.24', downloadDir: resolve('node_modules/.cache/mongodb-binaries') } });
 await mongoose.connect(mongo.getUri()); await initializeIndexes();
 const { departments, cohorts } = await setupCatalog();
 const department = departments.find(d => d.code === 'PMR');

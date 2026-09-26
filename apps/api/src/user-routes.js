@@ -2,9 +2,10 @@ import { Router } from 'express';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { id, usernameSchema, nameSchema, canManage } from '@residency/domain';
-import { User, Cohort, Department, LoginSession } from './models.js';
+import { User, Cohort, Department } from './models.js';
 import { requireThat, hashPassword, publicUser } from './security.js';
 import { mutate, audit, admins, notify } from './services.js';
+import { revokeSessions } from './push.js';
 
 export const userRouter = Router();
 userRouter.get('/directory', async (req, res) => {
@@ -63,7 +64,7 @@ userRouter.patch('/users/:id', async (req, res) => {
     requireThat(user && canManage(actor, user.cohortId), 404, 'NOT_FOUND');
     const before = { isRep: user.isRep, status: user.status };
     Object.assign(user, v);
-    if (v.status === 'suspended') { user.authVersion++; await LoginSession.deleteMany({ userId }).session(tx); }
+    if (v.status === 'suspended') { user.authVersion++; await revokeSessions({ userId }, tx); }
     await user.save({ session: tx });
     await audit(actor, tx, actor.cohortId, 'account_updated', userId, { before, after: v });
     return publicUser(user);
@@ -77,7 +78,7 @@ userRouter.post('/users/:id/password-reset', async (req, res) => {
     const user = await User.findOne({ _id: userId, departmentId: actor.departmentId, cohortId: actor.cohortId, kind: 'student', status: 'active' }).session(tx);
     requireThat(user, 404, 'NOT_FOUND');
     user.passwordHash = passwordHash; user.mustChangePassword = true; user.authVersion++;
-    await user.save({ session: tx }); await LoginSession.deleteMany({ userId }).session(tx);
+    await user.save({ session: tx }); await revokeSessions({ userId }, tx);
     await audit(actor, tx, actor.cohortId, 'password_reset', userId);
   });
   res.json({ temporaryPassword });
