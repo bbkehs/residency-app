@@ -72,7 +72,7 @@ try {
   await route(rep.page, `sessions/${target._id}`); await rep.page.getByRole('heading', { name: target.title, exact: true }).waitFor();
   await rep.page.getByRole('button', { name: 'Save for offline attendance', exact: true }).click();
   await rep.page.getByText('Session saved for offline attendance', { exact: true }).waitFor();
-  await rep.page.evaluate(async () => { await navigator.serviceWorker.ready; if (!navigator.serviceWorker.controller) await new Promise(resolve => navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true })); });
+  await rep.page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration())?.active && navigator.serviceWorker.controller));
   await rep.context.setOffline(true); await rep.page.getByText('Offline', { exact: true }).waitFor();
   await rep.page.getByRole('button', { name: 'Dena Sepehr: Present', exact: true }).click();
   await rep.page.locator('tr').filter({ hasText: 'Dena Sepehr' }).getByText('Saved on this device', { exact: true }).waitFor();
@@ -148,7 +148,7 @@ try {
   await rep.page.screenshot({ path: 'test-results/persian-mobile.png', fullPage: true, animations: 'disabled' }); checked('Persian RTL at 390px without page overflow');
   // Provider subscription and permission are mocked; no browser vendor is contacted.
   const pushUser = await session('demo-student', true);
-  await pushUser.page.evaluate(async () => { await navigator.serviceWorker.ready; });
+  await pushUser.page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration())?.active));
   assert.equal(await pushUser.page.evaluate(() => window.permissionRequests), 0);
   await pushUser.page.getByRole('button', { name: 'Notifications', exact: true }).click();
   await pushUser.page.getByRole('button', { name: 'Enable on this browser', exact: true }).click();
