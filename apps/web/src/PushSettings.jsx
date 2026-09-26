@@ -24,7 +24,7 @@ export function PushSettings() {
       finally { if (alive) setLoaded(true); }
     })();
     return () => { alive = false; };
-  }, [user._id, online, supported, permission]);
+  }, [user._id, online, supported]);
   const explanation = !supported ? 'PUSH_UNSUPPORTED' : !online ? 'offlineUnavailable' : !loaded ? 'loading' : error || (!config?.configured ? 'PUSH_NOT_CONFIGURED' : permission === 'denied' ? 'PUSH_PERMISSION_DENIED' : enabled ? 'pushEnabledNote' : 'pushPrivacy');
   return <section className="push-settings" aria-label={t('browserNotifications')}><div><BellRing size={20}/><h3>{t('browserNotifications')}</h3></div><p>{t(explanation)}</p>{supported && online && loaded && !error && config?.configured && <Button variant={enabled ? 'secondary' : 'primary'} disabled={busy || (!enabled && permission === 'denied')} onClick={() => run(async () => {
     if (enabled) { setEnabled(false); await disablePush(); flash(t('pushDisabled')); }

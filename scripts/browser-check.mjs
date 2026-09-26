@@ -23,6 +23,8 @@ const results = []; const pageErrors = [];
 const checked = name => { results.push(name); console.log(`PASS ${name}`); };
 async function session(username, mockPush = false) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
+  context.setDefaultTimeout(20000);
+  context.setDefaultNavigationTimeout(30000);
   if (mockPush) {
     const key = createECDH('prime256v1'); key.generateKeys();
     await context.addInitScript(({ p256dh, auth }) => {
