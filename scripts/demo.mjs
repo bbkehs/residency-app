@@ -11,7 +11,9 @@ import { hashPassword } from '../apps/api/src/security.js';
 await mkdir(resolve('.runtime/tmp'), { recursive: true });
 process.env.TMPDIR = resolve('.runtime/tmp');
 process.env.NODE_ENV = 'development';
-const mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 }, instanceOpts: [{ args: ['--nounixsocket'] }], binary: { version: '7.0.24', downloadDir: resolve('node_modules/.cache/mongodb-binaries') } });
+const mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 }, instanceOpts: [
+  { args: process.platform === 'win32' ? [] : ['--nounixsocket'] }
+], binary: { version: '7.0.24', downloadDir: resolve('node_modules/.cache/mongodb-binaries') } });
 await mongoose.connect(mongo.getUri()); await initializeIndexes();
 const { departments, cohorts } = await setupCatalog();
 const department = departments.find(d => d.code === 'PMR');
