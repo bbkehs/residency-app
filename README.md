@@ -16,7 +16,7 @@ A MERN PWA for department-separated residency cohorts. This first implementation
 
 ## Quick local demonstration
 
-Requires Node.js 22 or newer. This uses an actual temporary MongoDB replica set with fictional data. It does not connect to an existing database. The MongoDB test binary is downloaded on first use.
+Requires Node.js 22 or newer. This uses an actual temporary MongoDB replica set with fictional data. It does not connect to an existing database. On Windows, the demo first detects an installed MongoDB server. Otherwise it uses a cached or downloaded test binary.
 
 ```bash
 npm ci
@@ -104,19 +104,33 @@ Users enable notifications from the notification bell. The app does not ask for 
 
 The server validates production origin and push configuration at startup, checks for a transaction-capable MongoDB deployment, and exposes `/api/ready` for database readiness (`/api/health` remains a liveness check).
 
-### Windows: use an installed MongoDB executable
+### Windows: automatically use installed MongoDB
 
-If the demo cannot download MongoDB, set these in the same PowerShell terminal before running it. Replace the example executable path and version with those from your installation:
+`npm run demo` checks, in order: an explicit `MONGOMS_SYSTEM_BINARY`, `mongod.exe` in your `PATH`, and version folders under `Program Files/MongoDB/Server` (newest folder first). The demo probes the executable with `--version`, uses its actual version, and prints the selected path. MongoDB 7 or newer is required. It keeps using the Unix-compatible startup arguments only on Unix systems.
+
+For a normal Windows installation, just run:
 
 ```powershell
-$env:MONGOMS_SYSTEM_BINARY = "C:\Program Files\MongoDB\Server\7.0\bin\mongod.exe"
-& $env:MONGOMS_SYSTEM_BINARY --version
-$env:MONGOMS_VERSION = "7.0.24"
-$env:MONGOMS_RUNTIME_DOWNLOAD = "false"
 npm run demo
 ```
 
-The demo launches this executable in its own temporary replica set; it does not connect to your existing database or require you to start a MongoDB service. Its data is discarded when the demo stops. The Windows startup fix omits Unix-only arguments.
+For a manually extracted ZIP or another custom location, set the path once in a `.env` file in the project root. Forward slashes avoid Windows path escaping:
+
+```dotenv
+MONGOMS_SYSTEM_BINARY="C:/your-mongodb-folder/bin/mongod.exe"
+MONGOMS_RUNTIME_DOWNLOAD=false
+```
+
+The demo reads this file on every startup. Existing PowerShell environment variables take precedence, so remove an old override if you want the `.env` value or automatic detection to take effect:
+
+```powershell
+Remove-Item Env:MONGOMS_SYSTEM_BINARY -ErrorAction SilentlyContinue
+npm run demo
+```
+
+An invalid explicitly configured executable produces an actionable error without downloading. If no local executable is found, the demo uses its cached/downloaded binary unless `MONGOMS_RUNTIME_DOWNLOAD=false`. `MONGOMS_VERSION` selects that fallback download version; a detected executable always uses its own reported version.
+
+The demo starts a separate temporary replica set using the executable. Your installed MongoDB service and existing database files are not used, and demo data disappears on exit. The production app continues to connect through `MONGODB_URI` as documented above. The automated database tests retain their pinned/caller-selected binary configuration.
 
 ## Verification
 

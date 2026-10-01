@@ -16,9 +16,9 @@
     "build": "npm run build -w @residency/web",
     "start": "npm run start -w @residency/api",
     "setup": "npm run setup -w @residency/api",
-    "test": "node --test packages/domain/*.test.js apps/api/test/*.test.js apps/web/test/*.test.js",
+    "test": "node --test packages/domain/*.test.js apps/api/test/*.test.js apps/web/test/*.test.js scripts/test/*.test.mjs",
     "test:domain": "node --test packages/domain/*.test.js",
-    "demo": "npm run build && node scripts/demo.mjs",
+    "demo": "npm run build && node --env-file-if-exists=.env scripts/demo.mjs",
     "test:browser": "npm run build && node scripts/browser-check.mjs",
     "push:keys": "node scripts/push-keys.mjs"
   },
