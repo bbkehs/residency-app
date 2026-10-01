@@ -7,6 +7,7 @@ import { createApp } from '../apps/api/src/app.js';
 import { setupCatalog } from '../apps/api/src/setup.js';
 import { User, ClassSession, Leave, Observation, Thread, Message, Audit, initializeIndexes } from '../apps/api/src/models.js';
 import { hashPassword } from '../apps/api/src/security.js';
+import { resolveDemoMongo } from './demo-mongo.mjs';
 
 await mkdir(resolve('.runtime/tmp'), { recursive: true });
 process.env.TMPDIR = resolve('.runtime/tmp');
@@ -17,9 +18,11 @@ if (process.env.DEMO_TEST_PUSH === 'true') {
   const keys = webpush.generateVAPIDKeys();
   Object.assign(process.env, { PUSH_ENABLED: 'true', VAPID_PUBLIC_KEY: keys.publicKey, VAPID_PRIVATE_KEY: keys.privateKey, VAPID_SUBJECT: 'mailto:demo@example.com' });
 } else process.env.PUSH_ENABLED = 'false';
+const selectedMongo = await resolveDemoMongo();
+console.log(selectedMongo.description);
 const mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 }, instanceOpts: [
   { args: process.platform === 'win32' ? [] : ['--nounixsocket'] }
-], binary: { version: process.env.MONGOMS_VERSION || '7.0.24', downloadDir: resolve('node_modules/.cache/mongodb-binaries') } });
+], binary: { ...selectedMongo.binary, downloadDir: resolve('node_modules/.cache/mongodb-binaries') } });
 await mongoose.connect(mongo.getUri()); await initializeIndexes();
 const { departments, cohorts } = await setupCatalog();
 const department = departments.find(d => d.code === 'PMR');
