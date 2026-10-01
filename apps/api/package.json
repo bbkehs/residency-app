@@ -1,5 +1,21 @@
 {
-  "name": "@residency/api", "version": "0.1.0", "private": true, "type": "module",
-  "scripts": { "dev": "node --env-file-if-exists=../../.env --watch src/server.js", "start": "node --env-file-if-exists=../../.env src/server.js", "setup": "node --env-file-if-exists=../../.env src/setup.js" },
-  "dependencies": { "@residency/domain": "0.1.0", "cookie-parser": "^1.4.7", "express": "^5.2.1", "express-rate-limit": "^8.1.0", "helmet": "^8.1.0", "mongoose": "^8.19.1", "zod": "^4.1.12" }
+  "name": "@residency/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=../../.env --watch src/server.js",
+    "start": "node --env-file-if-exists=../../.env src/server.js",
+    "setup": "node --env-file-if-exists=../../.env src/setup.js"
+  },
+  "dependencies": {
+    "@residency/domain": "0.1.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.1.0",
+    "helmet": "^8.1.0",
+    "mongoose": "^8.19.1",
+    "web-push": "^3.6.7",
+    "zod": "^4.1.12"
+  }
 }

@@ -3,6 +3,8 @@ import { LayoutDashboard, CalendarDays, CalendarCheck, Users, ClipboardList, Mes
 import { api, setCsrf } from './api';
 import { cache, loadQueue, syncQueue } from './offline';
 import { translate } from './i18n';
+import { PushSettings } from './PushSettings';
+import { deactivatePush, syncPushLanguage, reconcilePush } from './push-client';
 import { AppContext, Button, Field, FormActions, Loading, Modal, Empty, Badge, PageTitle } from './ui';
 import { SessionsPage, SessionDetail, SessionForm } from './sessions';
 import { LeavePage, PeoplePage, MessagesPage, ReportsPage, AuditPage, PasswordForm } from './pages';
@@ -22,10 +24,13 @@ export default function App() {
   const time = value => new Intl.DateTimeFormat(lang === 'fa' ? 'fa-IR' : 'en-GB', { timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
   const run = async fn => {
     setBusy(true);
-    try { return await fn(); } catch (e) { flash(t(e.code || e.message || 'requestFailed'), true); if (e.code === 'NETWORK_ERROR') setOnline(false); if (e.status === 401 && e.code !== 'INVALID_CREDENTIALS') { setUser(null); await cache.clear(); } }
+    try { return await fn(); } catch (e) { flash(t(e.code || e.message || 'requestFailed'), true); if (e.code === 'NETWORK_ERROR') setOnline(false); if (e.status === 401 && e.code !== 'INVALID_CREDENTIALS') { setUser(null); await deactivatePush(true); await cache.clear(); } }
     finally { setBusy(false); }
   };
   async function signedIn(auth) {
+    await deactivatePush(true);
+    localStorage.setItem('auth-event', crypto.randomUUID());
+    if (location.hash === '#notifications') setDrawer(true);
     const old = await cache.get('profile');
     if (old && old._id !== auth.user._id) await cache.clear();
     setCsrf(auth.csrf); setUser(auth.user); localStorage.removeItem('logout-pending'); setOnline(true); setReady(true); go('overview');
@@ -42,11 +47,11 @@ export default function App() {
     (async () => {
       try {
         const auth = await api('/auth/me');
-        if (localStorage.getItem('logout-pending')) { setCsrf(auth.csrf); await api('/auth/logout', { method: 'POST', body: {} }); localStorage.removeItem('logout-pending'); await cache.clear(); }
-        else { setCsrf(auth.csrf); setUser(auth.user); if (auth.user.isRep) await cache.set('profile', auth.user); else await cache.delete('profile'); }
+        if (localStorage.getItem('logout-pending')) { await deactivatePush(true); setCsrf(auth.csrf); await api('/auth/logout', { method: 'POST', body: {} }); localStorage.removeItem('logout-pending'); await cache.clear(); }
+        else { if (auth.user.mustChangePassword) await deactivatePush(true); else await reconcilePush(auth.user._id); setCsrf(auth.csrf); setUser(auth.user); if (auth.user.isRep) await cache.set('profile', auth.user); else await cache.delete('profile'); }
       } catch (e) {
         if (e.code === 'NETWORK_ERROR') { setOnline(false); if (!localStorage.getItem('logout-pending')) { const saved = await cache.get('profile'); if (saved?.isRep) setUser(saved); } }
-        else if (e.status === 401) { await cache.clear(); localStorage.removeItem('logout-pending'); }
+        else if (e.status === 401) { await deactivatePush(true); await cache.clear(); localStorage.removeItem('logout-pending'); }
         else flash(t(e.code || 'requestFailed'), true);
       } finally { setReady(true); }
     })().catch(() => { setReady(true); flash(t('requestFailed'), true); });
@@ -60,12 +65,12 @@ export default function App() {
           if (user.isRep) { const [d, s] = await Promise.all([cache.get(`${user._id}:directory`), cache.get(`${user._id}:sessions`)]); if (alive) { setDirectory(d || { professors: [], cohorts: [], students: [] }); setSessions(s || []); } }
           return;
         }
-        const auth = await api('/auth/me'); if (!alive) return; setCsrf(auth.csrf); setUser(auth.user);
+        const auth = await api('/auth/me'); if (!alive) return; if (auth.user.mustChangePassword) await deactivatePush(true); else await reconcilePush(auth.user._id); setCsrf(auth.csrf); setUser(auth.user);
         const [d, s, n] = await Promise.all([api('/directory'), api('/sessions'), api('/notifications')]);
         if (!alive) return; setDirectory(d); setSessions(s); setNotifications(n);
         if (auth.user.isRep) { await cache.set('profile', auth.user); await cache.set(`${user._id}:directory`, d); await cache.set(`${user._id}:sessions`, s); }
         else await cache.clear();
-      } catch (e) { if (alive) { setBootstrapError(e); if (e.code === 'NETWORK_ERROR') setOnline(false); if (e.status === 401) { await cache.clear(); setUser(null); } } }
+      } catch (e) { if (alive) { setBootstrapError(e); if (e.code === 'NETWORK_ERROR') setOnline(false); if (e.status === 401) { await deactivatePush(true); await cache.clear(); setUser(null); } } }
       finally { if (alive) setBooting(false); }
     })();
     return () => { alive = false; };
@@ -77,12 +82,12 @@ export default function App() {
       // Offline reload intentionally has no CSRF credential. Reauthenticate before replay.
       const auth = await api('/auth/me'); setCsrf(auth.csrf);
       if (auth.user._id !== user._id || !auth.user.isRep) {
-        await cache.clear(); setQueue([]); setUser(auth.user); flash(t('ACCOUNT_CHANGED'), true); return;
+        await deactivatePush(true); await cache.clear(); setQueue([]); setUser(auth.user); flash(t('ACCOUNT_CHANGED'), true); return;
       }
       setUser(auth.user);
       const result = await syncQueue(user._id); setQueue(result); if (result.some(x => x.error)) flash(t('reviewNeeded'), true); else refresh();
     }
-    catch (e) { if (e.code === 'NETWORK_ERROR') setOnline(false); else { flash(t(e.code || 'requestFailed'), true); if (e.status === 401) { await cache.clear(); setUser(null); } } }
+    catch (e) { if (e.code === 'NETWORK_ERROR') setOnline(false); else { flash(t(e.code || 'requestFailed'), true); if (e.status === 401) { await deactivatePush(true); await cache.clear(); setUser(null); } } }
     finally { setQueue(await loadQueue(user._id)); setSyncing(false); }
   }, [user?._id, user?.isRep, online, lang]);
   useEffect(() => { if (user?.isRep) { loadQueue(user._id).then(setQueue); if (online) doSync(); } }, [user?._id, user?.isRep, online]);
@@ -90,10 +95,36 @@ export default function App() {
     if (queue.length && !confirm(t('logoutConfirm'))) return;
     await run(async () => {
       localStorage.setItem('logout-pending', '1');
+      await deactivatePush(true);
+      localStorage.setItem('auth-event', crypto.randomUUID());
       try { await api('/auth/logout', { method: 'POST', body: {} }); localStorage.removeItem('logout-pending'); } catch (e) { if (e.status === 401) localStorage.removeItem('logout-pending'); else if (e.code !== 'NETWORK_ERROR') throw e; }
       await cache.clear(); setCsrf(''); setUser(null); setQueue([]); setSessions([]); setNotifications([]); go('overview');
     });
   }
+  useEffect(() => {
+    if (user && !user.mustChangePassword) syncPushLanguage(user._id, lang, online).catch(() => {});
+  }, [user?._id, user?.mustChangePassword, lang, online]);
+  useEffect(() => {
+    if (user && route === 'notifications') { setDrawer(true); go('overview'); }
+  }, [user?._id, route]);
+  useEffect(() => {
+    const onAccount = event => { if (event.key === 'auth-event') location.reload(); };
+    addEventListener('storage', onAccount);
+    return () => removeEventListener('storage', onAccount);
+  }, []);
+  useEffect(() => {
+    if (!user || user.mustChangePassword || !online) return;
+    let alive = true;
+    const update = () => api('/notifications').then(items => { if (alive) setNotifications(items); }).catch(() => {});
+    const message = event => {
+      if (event.data?.type === 'COHORT_OPEN_NOTIFICATIONS') setDrawer(true);
+      if (['COHORT_NOTIFICATION', 'COHORT_OPEN_NOTIFICATIONS'].includes(event.data?.type)) update();
+    };
+    navigator.serviceWorker?.addEventListener('message', message);
+    addEventListener('focus', update);
+    const timer = setInterval(update, 45000);
+    return () => { alive = false; clearInterval(timer); removeEventListener('focus', update); navigator.serviceWorker?.removeEventListener('message', message); };
+  }, [user?._id, user?.mustChangePassword, online]);
   const context = { user, setUser, t, lang, online, busy, syncing, run, flash, refresh, revision, directory, sessions, queue, setQueue, doSync, go, date, time, signedIn };
   const nav = [{ key: 'overview', icon: LayoutDashboard }, { key: 'sessions', icon: CalendarDays }, { key: 'leave', icon: CalendarCheck }, ...((user?.kind === 'admin' || user?.isRep) ? [{ key: 'residents', icon: Users }] : []), { key: 'reports', icon: ClipboardList }, ...(['admin', 'professor'].includes(user?.kind) ? [{ key: 'messages', icon: MessagesSquare }] : []), ...(user?.kind === 'admin' ? [{ key: 'activity', icon: History }] : [])];
   return <AppContext.Provider value={context}>
@@ -110,7 +141,7 @@ export default function App() {
           {bootstrapError && online ? <div className="error-panel">{t(bootstrapError.code || 'requestFailed')}<Button onClick={refresh}>{t('refresh')}</Button></div> : booting && sessions.length === 0 ? <Loading/> : route === 'overview' ? <Overview/> : route === 'sessions' ? <SessionsPage/> : route.startsWith('sessions/') ? <SessionDetail sessionId={route.split('/')[1]}/> : route === 'leave' ? <LeavePage/> : route === 'residents' ? <PeoplePage/> : route === 'reports' ? <ReportsPage/> : route === 'messages' ? <MessagesPage/> : route === 'activity' ? <AuditPage/> : <Empty/>}
         </main><footer>{t('brand')}<span>{date(new Date())} · {t(user.isRep ? 'rep' : user.kind)}</span></footer>
       </div>
-      {drawer && <Modal title={t('notifications')} onClose={() => setDrawer(false)}>{notifications.length === 0 ? <Empty text="noNotifications"/> : <div className="notification-list">{notifications.map(n => <div className={n.readAt ? '' : 'unread'} key={n._id}><Bell size={18}/><div><strong>{t(n.type)}</strong><small>{date(n.createdAt)} · {time(n.createdAt)}</small></div>{!n.readAt && <Button variant="ghost" disabled={!online || busy} onClick={() => run(async () => { await api(`/notifications/${n._id}/read`, { method: 'POST', body: {} }); refresh(); })}>{t('markRead')}</Button>}</div>)}</div>}</Modal>}
+      {drawer && <Modal title={t('notifications')} onClose={() => setDrawer(false)}><PushSettings/>{notifications.length === 0 ? <Empty text="noNotifications"/> : <div className="notification-list">{notifications.map(n => <div className={n.readAt ? '' : 'unread'} key={n._id}><Bell size={18}/><div><strong>{t(n.type)}</strong><small>{date(n.createdAt)} · {time(n.createdAt)}</small></div>{!n.readAt && <Button variant="ghost" disabled={!online || busy} onClick={() => run(async () => { await api(`/notifications/${n._id}/read`, { method: 'POST', body: {} }); refresh(); })}>{t('markRead')}</Button>}</div>)}</div>}</Modal>}
       {passwordOpen && <Modal title={t('passwordChange')} onClose={() => setPasswordOpen(false)}><PasswordForm onDone={() => setPasswordOpen(false)}/></Modal>}
     </div>}
     {toast && <div key={toast.key} className={`toast ${toast.error ? 'error' : ''}`} role={toast.error ? 'alert' : 'status'}><span>{toast.message}</span><button aria-label={t('close')} onClick={() => setToast(null)}><X size={17}/></button></div>}

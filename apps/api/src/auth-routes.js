@@ -3,9 +3,10 @@ import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import mongoose from 'mongoose';
 import { usernameSchema, passwordSchema, nameSchema, id } from '@residency/domain';
-import { User, Cohort, Department, LoginSession } from './models.js';
+import { User, Cohort, Department } from './models.js';
 import { authenticated, hashPassword, verifyPassword, createLogin, publicUser, requireThat, cookieOptions } from './security.js';
 import { audit, admins, notify, mutate } from './services.js';
+import { revokeSessions } from './push.js';
 
 export const authRouter = Router();
 authRouter.get('/catalog', async (req, res) => res.json({ departments: await Department.find().sort({ code: 1 }).lean(), cohorts: await Cohort.find().sort({ year: 1 }).lean() }));
@@ -27,12 +28,12 @@ authRouter.post('/login', limiter, async (req, res) => {
   const valid = await verifyPassword(v.password, user?.passwordHash);
   requireThat(valid && user, 401, 'INVALID_CREDENTIALS');
   requireThat(user.status === 'active', 403, user.status === 'pending' ? 'ACCOUNT_PENDING' : 'ACCOUNT_DISABLED');
-  if (req.cookies.residency_session) { const { hashToken } = await import('./security.js'); await LoginSession.deleteOne({ tokenHash: hashToken(req.cookies.residency_session) }); }
+  if (req.cookies.residency_session) { const { hashToken } = await import('./security.js'); await revokeSessions({ tokenHash: hashToken(req.cookies.residency_session) }); }
   res.json(await createLogin(user, res));
 });
 authRouter.get('/me', authenticated, (req, res) => res.json({ user: publicUser(req.user), csrf: req.loginSession.csrf }));
 authRouter.post('/logout', authenticated, async (req, res) => {
-  await LoginSession.deleteOne({ _id: req.loginSession._id });
+  await revokeSessions({ _id: req.loginSession._id });
   res.clearCookie('residency_session', cookieOptions()).json({ ok: true });
 });
 authRouter.post('/password', authenticated, async (req, res) => {
@@ -42,7 +43,7 @@ authRouter.post('/password', authenticated, async (req, res) => {
   const passwordHash = await hashPassword(v.password);
   const user = await mutate(req, async (actor, tx) => {
     const updated = await User.findByIdAndUpdate(actor._id, { $set: { passwordHash, mustChangePassword: false }, $inc: { authVersion: 1 } }, { new: true, session: tx }).lean();
-    await LoginSession.deleteMany({ userId: actor._id }).session(tx);
+    await revokeSessions({ userId: actor._id }, tx);
     if (actor.cohortId || actor.approvalCohortId) await audit(actor, tx, actor.cohortId || actor.approvalCohortId, 'password_changed', actor._id);
     return updated;
   });

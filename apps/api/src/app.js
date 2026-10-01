@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import { ZodError } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import mongoose from 'mongoose';
 import { fileURLToPath } from 'node:url';
 import { authenticated, requireThat } from './security.js';
 import { authRouter } from './auth-routes.js';
@@ -12,6 +13,7 @@ import { sessionRouter } from './session-routes.js';
 import { attendanceRouter } from './attendance-routes.js';
 import { leaveRouter } from './leave-routes.js';
 import { communicationRouter } from './communication-routes.js';
+import { pushRouter } from './push-routes.js';
 
 export function createApp({ origin = process.env.APP_ORIGIN || 'http://localhost:5173' } = {}) {
   const app = express();
@@ -28,9 +30,16 @@ export function createApp({ origin = process.env.APP_ORIGIN || 'http://localhost
     next();
   });
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+  app.get('/api/ready', async (req, res) => {
+    try {
+      if (mongoose.connection.readyState !== 1) return res.status(503).json({ status: 'not_ready' });
+      await mongoose.connection.db.admin().command({ ping: 1 }, { timeoutMS: 1500 });
+      res.json({ status: 'ready' });
+    } catch { res.status(503).json({ status: 'not_ready' }); }
+  });
   app.use('/api/auth', authRouter);
   app.use('/api', authenticated, (req, res, next) => { requireThat(!req.user.mustChangePassword, 403, 'PASSWORD_CHANGE_REQUIRED'); next(); });
-  app.use('/api', userRouter, sessionRouter, attendanceRouter, leaveRouter, communicationRouter);
+  app.use('/api', userRouter, sessionRouter, attendanceRouter, leaveRouter, communicationRouter, pushRouter);
   app.use('/api', (req, res) => res.status(404).json({ error: 'NOT_FOUND' }));
   const dist = fileURLToPath(new URL('../../web/dist/', import.meta.url));
   if (existsSync(dist)) {

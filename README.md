@@ -10,6 +10,7 @@ A MERN PWA for department-separated residency cohorts. This first implementation
 - Independent timestamped rep and professor observations, including several professors per session. Reports show every source separately, with no combined attendance verdict.
 - Day, session, and hourly leave; selected professor approval followed by cohort-admin approval. Approved leave supplies a separate absent status, with an audited admin override. Observer records remain intact.
 - Attendance reports with CSV export, scoped activity history, professor/admin message threads, and in-app notifications.
+- Optional browser push with explicit per-browser consent, English/Persian generic alerts, durable retries, and login-scoped subscriptions.
 - English/Persian screens, RTL layout, Jalali date entry and display, and Tehran timezone handling.
 - Installable PWA, explicitly downloaded rosters, an IndexedDB attendance queue, ordered/idempotent sync, stale-write detection, and logout cleanup.
 
@@ -95,6 +96,28 @@ The Dockerfile builds the frontend and runs Express as a non-root user. Supply r
 
 This deliverable does not provision hosting, a production MongoDB database, TLS, backups, browser-push credentials, or a production domain. Test your production database, proxy/origin configuration, backup recovery, and operational limits before using actual resident records. No deployment has been performed.
 
+## Browser notifications
+
+Push is disabled by default. To configure a persistent installation, run `npm run push:keys` once, store the generated key pair in the server environment, and set `PUSH_ENABLED=true` plus a real `VAPID_SUBJECT` operator contact. Do not commit the private key. See [docs/push-notifications.md](docs/push-notifications.md) for the complete setup, lifecycle, and delivery limits.
+
+Users enable notifications from the notification bell. The app does not ask for browser permission until they press **Enable on this browser**. Push alerts contain generic text only; records remain inside the authenticated app. Sign-out or password reset revokes the related subscriptions. The fictional `npm run demo` deliberately does not deliver browser push.
+
+The server validates production origin and push configuration at startup, checks for a transaction-capable MongoDB deployment, and exposes `/api/ready` for database readiness (`/api/health` remains a liveness check).
+
+### Windows: use an installed MongoDB executable
+
+If the demo cannot download MongoDB, set these in the same PowerShell terminal before running it. Replace the example executable path and version with those from your installation:
+
+```powershell
+$env:MONGOMS_SYSTEM_BINARY = "C:\Program Files\MongoDB\Server\7.0\bin\mongod.exe"
+& $env:MONGOMS_SYSTEM_BINARY --version
+$env:MONGOMS_VERSION = "7.0.24"
+$env:MONGOMS_RUNTIME_DOWNLOAD = "false"
+npm run demo
+```
+
+The demo launches this executable in its own temporary replica set; it does not connect to your existing database or require you to start a MongoDB service. Its data is discarded when the demo stops. The Windows startup fix omits Unix-only arguments.
+
 ## Verification
 
 ```bash
@@ -111,7 +134,7 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-The browser check starts its own temporary fictional demo on localhost:4100 and stops it afterward. It changes demo data while checking login, attendance, offline reload and replay, reports, Persian/mobile layout, and account flows. Screenshots and test output go into `test-results/` and are not application records.
+The browser check starts its own temporary fictional demo on localhost:4100 and stops it afterward. It changes demo data while checking login, attendance, offline reload and replay, reports, Persian/mobile layout, account flows, and opt-in/disable/language/logout notification controls with a mocked push provider. Screenshots and test output go into `test-results/` and are not application records.
 
 In a restricted execution environment without writable `/tmp`, use a writable temporary directory:
 
@@ -138,11 +161,11 @@ Each local edit is queued in order with a unique operation ID and expected recor
 
 The app shell is cached by the production service worker. API responses are never service-worker cached. Private downloaded rosters and the outbox live in account-scoped IndexedDB and are cleared on logout. Offline logout is completed on the server after connectivity returns. A revoked permission cannot be detected by an offline device until it reconnects; the server always rechecks permission before accepting queued edits.
 
-The app must be open to sync reliably. Background sync and browser push are not implemented. Do not use downloaded private rosters on an untrusted/shared device.
+The app must be open to sync reliably. Background attendance sync is not implemented. Optional browser push is independent of attendance synchronization. Do not use downloaded private rosters on an untrusted/shared device.
 
 ## Current boundaries
 
-- In-app notifications are available; browser push is deferred.
+- Browser push requires operator configuration and user permission; delivery remains best effort. See [notification setup](docs/push-notifications.md).
 - No imports, absence thresholds, recurring schedules, file attachments, or global administrator UI.
 - Jalali date input uses validated text fields and time controls, not a graphical calendar picker.
 - Account and session lists are bounded to 1,000 accounts / 300 sessions; leave lists to 300 requests; notifications and conversation lists to 100; each message thread displays up to 500 messages. Audit history is paginated. Reports reject ranges over one year or more than 200 sessions. Add cursor pagination before a deployment requires larger working sets.
@@ -162,4 +185,4 @@ scripts/           Fictional demo and browser checks
 docs/              Requirements and implementation notes
 ```
 
-See [docs/implementation-notes.md](docs/implementation-notes.md) for the initial verification record and design choices.
+See [docs/implementation-notes.md](docs/implementation-notes.md) for the initial verification record and design choices. Phase-specific changes and verification are in [docs/push-notifications.md](docs/push-notifications.md).

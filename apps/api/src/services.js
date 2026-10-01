@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { Audit, Notification, User, ClassSession, Leave, LeaveOverride, Observation } from './models.js';
 import { requireThat, publicUser } from './security.js';
 import { canManage, canRep, activeParticipation, leaveApplies } from '@residency/domain';
+import { enqueuePush } from './push.js';
 
 export async function mutate(req, fn) {
   return mongoose.connection.transaction(async tx => {
@@ -14,7 +15,10 @@ export async function audit(user, tx, cohortId, action, entityId, detail = {}) {
   await Audit.create([{ departmentId: user.departmentId, cohortId, actorId: user._id, action, entityId, detail }], { session: tx });
 }
 export async function notify(tx, recipientIds, type, entityId) {
-  for (const recipientId of [...new Set(recipientIds)]) await Notification.create([{ recipientId, type, entityId }], { session: tx });
+  for (const recipientId of [...new Set(recipientIds)]) {
+    const [notification] = await Notification.create([{ recipientId, type, entityId }], { session: tx });
+    await enqueuePush(notification, tx);
+  }
 }
 export async function admins(cohortId, tx) { return (await User.find({ kind: 'admin', cohortId, status: 'active' }).session(tx).lean()).map(x => x._id); }
 export function sessionQuery(user) {

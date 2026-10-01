@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { createECDH, randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -9,7 +10,7 @@ import { jalaliDateTime } from '../packages/domain/index.js';
 await mkdir(resolve('.runtime/tmp'), { recursive: true }); await mkdir(resolve('test-results'), { recursive: true });
 process.env.TMPDIR = resolve('.runtime/tmp');
 const port = 4100; const base = `http://localhost:${port}`;
-const demo = spawn(process.execPath, ['scripts/demo.mjs'], { env: { ...process.env, DEMO_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
+const demo = spawn(process.execPath, ['scripts/demo.mjs'], { env: { ...process.env, DEMO_PORT: String(port), DEMO_TEST_PUSH: 'true' }, stdio: ['ignore', 'pipe', 'pipe'] });
 let demoOutput = '';
 await new Promise((resolveReady, reject) => {
   const timer = setTimeout(() => reject(new Error('Demo startup timed out')), 60000);
@@ -20,8 +21,27 @@ await new Promise((resolveReady, reject) => {
 let browser;
 const results = []; const pageErrors = [];
 const checked = name => { results.push(name); console.log(`PASS ${name}`); };
-async function session(username) {
+async function session(username, mockPush = false) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
+  context.setDefaultTimeout(20000);
+  context.setDefaultNavigationTimeout(30000);
+  if (mockPush) {
+    const key = createECDH('prime256v1'); key.generateKeys();
+    await context.addInitScript(({ p256dh, auth }) => {
+      window.permissionRequests = 0;
+      Object.defineProperty(Notification, 'permission', { configurable: true, get: () => localStorage.getItem('qa-permission') || 'default' });
+      Notification.requestPermission = async () => { window.permissionRequests++; localStorage.setItem('qa-permission', 'granted'); return 'granted'; };
+      function current() {
+        const saved = JSON.parse(localStorage.getItem('qa-push') || 'null');
+        if (!saved) return null;
+        return { options: { applicationServerKey: Uint8Array.from(saved.applicationServerKey).buffer },
+          toJSON: () => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/browser-test-only', expirationTime: null, keys: { p256dh, auth } }),
+          unsubscribe: async () => { localStorage.removeItem('qa-push'); return true; } };
+      }
+      PushManager.prototype.getSubscription = async () => current();
+      PushManager.prototype.subscribe = async options => { localStorage.setItem('qa-push', JSON.stringify({ applicationServerKey: Array.from(new Uint8Array(options.applicationServerKey)) })); return current(); };
+    }, { p256dh: key.getPublicKey().toString('base64url'), auth: randomBytes(16).toString('base64url') });
+  }
   const page = await context.newPage(); page.on('pageerror', e => pageErrors.push(e.message));
   await page.goto(base); await page.getByLabel('Username', { exact: true }).fill(username); await page.getByLabel('Password', { exact: true }).fill('Demo-Only-2026!');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click(); await page.getByRole('heading', { name: /Welcome back/ }).waitFor();
@@ -52,7 +72,7 @@ try {
   await route(rep.page, `sessions/${target._id}`); await rep.page.getByRole('heading', { name: target.title, exact: true }).waitFor();
   await rep.page.getByRole('button', { name: 'Save for offline attendance', exact: true }).click();
   await rep.page.getByText('Session saved for offline attendance', { exact: true }).waitFor();
-  await rep.page.evaluate(async () => { await navigator.serviceWorker.ready; if (!navigator.serviceWorker.controller) await new Promise(resolve => navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true })); });
+  await rep.page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration())?.active && navigator.serviceWorker.controller));
   await rep.context.setOffline(true); await rep.page.getByText('Offline', { exact: true }).waitFor();
   await rep.page.getByRole('button', { name: 'Dena Sepehr: Present', exact: true }).click();
   await rep.page.locator('tr').filter({ hasText: 'Dena Sepehr' }).getByText('Saved on this device', { exact: true }).waitFor();
@@ -126,6 +146,37 @@ try {
   await rep.page.waitForFunction(() => document.querySelector('.sidebar').getBoundingClientRect().left >= innerWidth - 1);
   if (await rep.page.locator('.toast button').count()) await rep.page.locator('.toast button').click();
   await rep.page.screenshot({ path: 'test-results/persian-mobile.png', fullPage: true, animations: 'disabled' }); checked('Persian RTL at 390px without page overflow');
+  // Provider subscription and permission are mocked; no browser vendor is contacted.
+  const pushUser = await session('demo-student', true);
+  await pushUser.page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration())?.active));
+  assert.equal(await pushUser.page.evaluate(() => window.permissionRequests), 0);
+  await pushUser.page.getByRole('button', { name: 'Notifications', exact: true }).click();
+  await pushUser.page.getByRole('button', { name: 'Enable on this browser', exact: true }).click();
+  await pushUser.page.getByRole('button', { name: 'Disable on this browser', exact: true }).waitFor();
+  assert.equal(await pushUser.page.evaluate(() => window.permissionRequests), 1);
+  assert.ok((await apiGet(pushUser.page, '/push/subscriptions/current')).subscription);
+  checked('Push requires explicit opt-in and saves a login-scoped subscription (mock provider)');
+  await pushUser.page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).first().click();
+  await pushUser.page.reload(); await pushUser.page.getByRole('heading', { name: /Welcome back/ }).waitFor();
+  await pushUser.page.getByRole('button', { name: 'Notifications', exact: true }).click();
+  await pushUser.page.getByRole('button', { name: 'Disable on this browser', exact: true }).waitFor();
+  await pushUser.page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).first().click();
+  await pushUser.page.getByRole('button', { name: 'فارسی', exact: true }).click();
+  await pushUser.page.waitForFunction(async () => (await (await fetch('/api/push/subscriptions/current')).json()).subscription?.language === 'fa');
+  await pushUser.page.getByRole('button', { name: 'English', exact: true }).click();
+  await pushUser.page.getByRole('button', { name: 'Notifications', exact: true }).click();
+  await pushUser.page.getByRole('button', { name: 'Disable on this browser', exact: true }).click();
+  await pushUser.page.getByRole('button', { name: 'Enable on this browser', exact: true }).waitFor();
+  await pushUser.page.waitForFunction(async () => (await (await fetch('/api/push/subscriptions/current')).json()).subscription === null);
+  checked('Push binding survives reload, follows language, and can be disabled');
+  await pushUser.page.getByRole('button', { name: 'Enable on this browser', exact: true }).click();
+  await pushUser.page.getByRole('button', { name: 'Disable on this browser', exact: true }).waitFor();
+  await pushUser.page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).first().click();
+  await pushUser.page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await pushUser.page.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
+  assert.equal(await pushUser.page.evaluate(() => localStorage.getItem('qa-push')), null);
+  assert.equal(await pushUser.page.evaluate(() => new Promise(resolve => { const r = indexedDB.open('cohort-push-v1', 1); r.onsuccess = () => { const q = r.result.transaction('settings').objectStore('settings').get('active'); q.onsuccess = () => { resolve(q.result || null); r.result.close(); }; }; })), null);
+  checked('Sign-out clears browser push subscription and local account binding');
   assert.deepEqual(pageErrors, []); checked('No browser JavaScript errors');
   await writeFile('test-results/browser-results.json', JSON.stringify({ checked: results, pageErrors }, null, 2));
   console.log(`${results.length} browser checks passed.`);

@@ -42,8 +42,22 @@ export const Leave = model('Leave', {
 }, [[{ departmentId: 1, cohortId: 1, status: 1 }, {}], [{ studentId: 1, status: 1 }, {}]]);
 export const LeaveOverride = model('LeaveOverride', { departmentId: ref, cohortId: ref, sessionId: ref, studentId: ref, status: { type: String, enum: ['present', 'absent'] }, reason: String, actorId: ref }, [[{ sessionId: 1, studentId: 1 }, { unique: true }]]);
 export const Notification = model('Notification', { recipientId: ref, type: String, entityId: String, readAt: Date }, [[{ recipientId: 1, createdAt: -1 }, {}]]);
+export const PushSubscription = model('PushSubscription', {
+  userId: ref, loginSessionId: { type: String, required: true, unique: true },
+  endpointHash: { type: String, required: true, unique: true }, endpoint: { type: String, required: true, select: false },
+  keys: { type: Schema.Types.Mixed, required: true, select: false }, publicKey: String,
+  language: { type: String, enum: ['en', 'fa'], default: 'en' }, version: { type: Number, default: 1 },
+  expiresAt: Date,
+}, [[{ userId: 1 }, {}], [{ expiresAt: 1 }, { expireAfterSeconds: 0 }]]);
+export const PushDelivery = model('PushDelivery', {
+  notificationId: ref, userId: ref, subscriptionId: ref, subscriptionVersion: Number,
+  state: { type: String, enum: ['queued', 'sending', 'sent', 'failed', 'cancelled'], default: 'queued' },
+  attempts: { type: Number, default: 0 }, nextAttemptAt: { type: Date, default: Date.now },
+  leaseToken: String, leaseUntil: Date, lastStatus: Number, failureCode: String, sentAt: Date,
+  expiresAt: { type: Date, default: () => new Date(Date.now() + 7 * 86400000) },
+}, [[{ notificationId: 1, subscriptionId: 1 }, { unique: true }], [{ state: 1, nextAttemptAt: 1, leaseUntil: 1 }, {}], [{ expiresAt: 1 }, { expireAfterSeconds: 0 }]]);
 export const Thread = model('Thread', { departmentId: ref, cohortId: ref, professorId: ref, subject: String });
 export const Message = model('Message', { threadId: ref, authorId: ref, text: String }, [[{ threadId: 1, createdAt: 1 }, {}]]);
 export const Audit = model('Audit', { departmentId: ref, cohortId: ref, actorId: ref, action: String, entityId: String, detail: Schema.Types.Mixed }, [[{ cohortId: 1, createdAt: -1 }, {}]]);
-export const models = { Department, Cohort, User, LoginSession, ClassSession, Observation, Receipt, Leave, LeaveOverride, Notification, Thread, Message, Audit };
+export const models = { Department, Cohort, User, LoginSession, ClassSession, Observation, Receipt, Leave, LeaveOverride, Notification, PushSubscription, PushDelivery, Thread, Message, Audit };
 export async function initializeIndexes() { await Promise.all(Object.values(models).map(m => m.init())); }
